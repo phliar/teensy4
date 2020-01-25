@@ -63,9 +63,10 @@ void panic(const char* msg);
 void setup() {
     // Set up the serial console.
     Serial.begin(115200);
-    while (!Serial)
-        ;
-    Serial.println("Started.");
+    delay(1250);
+    verbose = !!Serial;
+    if (verbose)
+	Serial.println("Started.");
 
     // Displays
     tftInit();
@@ -106,7 +107,7 @@ void loop() {
     showSensorValues();
 
     unsigned long elapsed = micros() - loopStart;
-    if (ding)
+    if (ding && verbose)
 	streamPrintf(Serial, "WARNING: loop took %.2f ms", elapsed/1000.0);
 }
 
@@ -120,7 +121,8 @@ uint16_t heading(float hx, float hy, float hz) {
 
 // Print a message and don't return.
 void panic(const char* msg) {
-    Serial.print(msg);
+    if (verbose)
+	Serial.print(msg);
     for(;;);
 }
  

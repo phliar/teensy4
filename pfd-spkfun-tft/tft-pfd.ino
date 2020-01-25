@@ -14,6 +14,10 @@ const int tftInfoHeight = 24;
 const int tftPFDHeight = paneWidth/2; // 2:1 rectangle
 const int tftAltYPos = paneHeight - tftInfoHeight;
 
+const int PITCH_MIN = -30;
+const int PITCH_MAX = 30;
+const int FATLINE_W = 80;
+
 const char* cardinalLabels[] =
     { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
       "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
@@ -96,8 +100,6 @@ void fillRect(int x1, int y1, int x2, int y2, color_t color) {
 //
 
 void showPFD(float g, sensors_vec_t *orient, sensors_vec_t *mag, int alt) {
-    tft.clearDisplay();
-
     // Transformation matrix: rotation by orient->z and xlation by orient->y.
     float roll = -orient->z, pitch = -orient->y; 
     float M[2][3];
@@ -152,7 +154,7 @@ void showPFD(float g, sensors_vec_t *orient, sensors_vec_t *mag, int alt) {
 // against both ground and sky.
 //
 // Should just be a bitmap....
-void drawWing(int16_t lpos, int16_t width, int16_t thickness) {
+void drawWing(int lpos, int width, int thickness) {
     // After rotation the upper-right corner becomes the upper left.
     point p = {lpos+width, thickness/2};
     p = lscapeXform(p);
@@ -161,7 +163,7 @@ void drawWing(int16_t lpos, int16_t width, int16_t thickness) {
     drawRect(p.x, p.y, p.x+thickness, p.y+width, tftFixedPlaneFG);
 }
 
-void drawNose(int16_t height, int16_t thickness) {
+void drawNose(int height, int thickness) {
     // The "nose" is an inverted V that fits in the HxW box, with its point
     // at screen center. The aspect ratio of the box is 4 i.e. a 2:1 slope.
 
@@ -180,21 +182,39 @@ void drawNose(int16_t height, int16_t thickness) {
 
 // Horizon line
 void drawHorizon(float M[2][3], float pitch) {
-    point p1 = {-paneWidth/2, 0};
-    point p2 = {paneWidth/2, 0};
-    transformDrawLine(M, p1, p2);
     // if pitch within limits then transform the endpoints and clipDraw()
     // else fill with either sky or ground colour.
-    // ...
+    if (pitch < PITCH_MIN) {
+	fillRect(0, 0, paneHeight, paneWidth, tftGround);
+    } else if (pitch > PITCH_MAX) {
+	fillRect(0, 0, paneHeight, paneWidth, tftSky);
+    } else {
+	// This doesn't quite work... round-off somewhere?
+	point p1 = {-paneWidth*2, FATLINE_W/2};
+	point p2 = {paneWidth*2, FATLINE_W/2};
+	p1 = transform(M, p1);
+	p2 = transform(M, p2);
+	drawLine(p1.x, p1.y, p2.x, p2.y, FATLINE_W, tftSky);
+
+	p1 = {-paneWidth*2, -FATLINE_W/2};
+	p2 = {paneWidth*2, -FATLINE_W/2};
+	p1 = transform(M, p1);
+	p2 = transform(M, p2);
+	drawLine(p1.x, p1.y, p2.x, p2.y, FATLINE_W, tftGround);
+
+	p1 = {-paneWidth*2, 0};
+	p2 = {paneWidth*2, 0};
+	transformDrawLine(M, p1, p2);
+    }
 }
 
-void paintSkyGround(int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
+void paintSkyGround(int x1, int y1, int x2, int y2) {
     // Hmmm how do we know which side is sky?
     // ...
 }
 
 // Draw two lines of the pitch ladder.
-void ladderLine(float M[2][3], int16_t yDeg, int16_t width) {
+void ladderLine(float M[2][3], int yDeg, int width) {
     point pLeft = {-width, yDeg * pxPerDeg};
     point pRight = {width, yDeg * pxPerDeg};
     transformDrawLine(M, pLeft, pRight);
@@ -238,8 +258,8 @@ point lscapeXform(point p) {
 
 point transform(float M[2][3], point p) {
     point to;
-    to.x = (int16_t)(0.5 +  p.x * M[0][0]  +  p.y * M[0][1]  +  M[0][2]);
-    to.y = (int16_t)(0.5 +  p.x * M[1][0]  +  p.y * M[1][1]  +  M[1][2]);
+    to.x = (int)(0.5 +  p.x * M[0][0]  +  p.y * M[0][1]  +  M[0][2]);
+    to.y = (int)(0.5 +  p.x * M[1][0]  +  p.y * M[1][1]  +  M[1][2]);
     if (verbose)
 	streamPrintf(Serial, "  M (%d, %d) => (%d, %d)\n", p.x, p.y, to.x, to.y);
     return to;
@@ -287,7 +307,7 @@ void getTransform(float M[2][3], float roll, float pitch) {
 // Info strips
 //
 
-void drawText(int16_t vpos, txtAlign_t align, color_t fg, color_t bg,
+void drawText(int vpos, txtAlign_t align, color_t fg, color_t bg,
 	      const char* msg, int msgLen) {
     point p = {0, vpos};
     int w = msgLen * charX;
@@ -306,7 +326,7 @@ void drawText(int16_t vpos, txtAlign_t align, color_t fg, color_t bg,
     drawString(p.x, p.y, w, fg, bg, msg); // Text will go in the wrong direction....
 }
 
-void tftPrintf(int16_t vpos, txtAlign_t align, color_t fg, color_t bg,
+void tftPrintf(int vpos, txtAlign_t align, color_t fg, color_t bg,
 	       const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -320,7 +340,7 @@ void drawAlt(int32_t alt) {
     tftPrintf(tftAltYPos, TA_RIGHT, tftInfoFG, tftInfoBG, "%d", alt);
 }
 
-void drawHeading(int16_t hdg) {
+void drawHeading(int hdg) {
     // Some dots at 10° intervals. Find the closest dot, and draw out from
     // there (the background for the label will be erased).
     int dotPos = (closestMult(hdg, 36, NULL) - hdg) * pxPerDeg;
@@ -332,9 +352,9 @@ void drawHeading(int16_t hdg) {
     }
 
     // There are 16 named cardinal directions.
-    int16_t closest;
-    int16_t closestDeg = closestMult(hdg, 16, &closest);
-    int16_t labelPos = (closestDeg - hdg) * pxPerDeg;
+    int closest;
+    int closestDeg = closestMult(hdg, 16, &closest);
+    int labelPos = (closestDeg - hdg) * pxPerDeg;
     drawCardinal(labelPos, closest);
     showOffsetCardinal(labelPos, closest, 1);
     showOffsetCardinal(labelPos, closest, -1);
@@ -342,7 +362,7 @@ void drawHeading(int16_t hdg) {
     tftPrintf(paneHeight/2 - tftInfoHeight, TA_CENTER, tftInfoFG, tftInfoBG, "%03d", hdg);
 }
 
-void showOffsetCardinal(int16_t pos, int16_t idx, int16_t offset) {
+void showOffsetCardinal(int pos, int idx, int offset) {
     if (offset == 1) {
         if (++idx == 16)
             idx = 0;
@@ -354,7 +374,7 @@ void showOffsetCardinal(int16_t pos, int16_t idx, int16_t offset) {
     }
 }
 
-void drawCardinal(int16_t pos, int16_t idx) {
+void drawCardinal(int pos, int idx) {
     const char* label = cardinalLabels[idx];
     int lablen = strlen(label);
     if (lablen > 1)
@@ -364,7 +384,7 @@ void drawCardinal(int16_t pos, int16_t idx) {
     drawString(p.x, p.y, lablen * charX, tftInfoFG, tftInfoBG, label);
 }
 
-int closestMult(int16_t deg, int16_t steps, int16_t* idx) {
+int closestMult(int deg, int steps, int* idx) {
     float div = 360.0/steps;
     int pos = int(deg/div + 0.5);
     if (idx)

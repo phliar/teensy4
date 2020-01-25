@@ -15,7 +15,7 @@ const int TOP = 8;    // 1000
 // ASSUME THAT xmax, xmin, ymax and ymin are global constants.
 
 double xmin, xmax, ymin, ymax;
-void DrawRectangle(double xmax, double ymax, double xmin, double ymin);
+void DrawRectangle(double, double, double, double);
 void LineSegment(double x0, double y0, double x1, double y1);
 extern void paintSkyGround(int16_t x1, int16_t y1, int16_t x2, int16_t y2);
 
@@ -40,7 +40,7 @@ OutCode ComputeOutCode(double x, double y)
 // Cohen–Sutherland clipping algorithm clips a line from
 // P0 = (x0, y0) to P1 = (x1, y1) against a rectangle with 
 // diagonal from (xmin, ymin) to (xmax, ymax).
-void CohenSutherlandLineClipAndDraw(double x0, double y0, double x1, double y1)
+bool CohenSutherlandLineClipAndDraw(double x0, double y0, double x1, double y1)
 {
     // compute outcodes for P0, P1, and whatever point lies outside the clip rectangle
     OutCode outcode0 = ComputeOutCode(x0, y0);
@@ -104,15 +104,16 @@ void CohenSutherlandLineClipAndDraw(double x0, double y0, double x1, double y1)
 	DrawRectangle(xmin, ymin, xmax, ymax);
 	LineSegment(x0, y0, x1, y1);
     }
+    return accept;
 }
 
-void clipDraw(int x1, int y1, int x2, int y2,
+bool clipDraw(int x1, int y1, int x2, int y2,
 	      int x_min, int x_max, int y_min, int y_max) {
     xmin = x_min;
     xmax = x_max;
     ymin = y_min;
     ymax = y_max;
-    CohenSutherlandLineClipAndDraw(x1, y1, x2, y2);
+    return CohenSutherlandLineClipAndDraw(x1, y1, x2, y2);
 }
 
 
