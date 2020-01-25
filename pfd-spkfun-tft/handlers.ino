@@ -18,9 +18,6 @@ float pitchOffset = 0.0;
 float rollOffset = 0.0;
 
 void showSensorValues() {
-#if 0
-    showPFD(1.0, 0, 0, 0);
-#else
     sensors_event_t baroEvt; bmp.getEvent(&baroEvt);
     float temp; bmp.getTemperature(&temp);
     int alt = bmp.pressureToAltitude(qnh * inHg2mb,
@@ -45,8 +42,6 @@ void showSensorValues() {
 		 imuEvt.magnetic.x, imuEvt.magnetic.y, imuEvt.magnetic.z,
 		 grav.x(), grav.y(), grav.z());
     showPFD(grav.z(), &imuEvt.orientation, &imuEvt.magnetic, alt);
-#endif
-    
 }
 
 // Fetch pressure and temperature.

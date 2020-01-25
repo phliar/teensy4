@@ -31,13 +31,15 @@ const int cardinalPitch = int(22.5 * pxPerDeg + 0.5);
 
 // The TFT panel.
 KWH018ST01_4WSPI tft;
-ILI9163C_color_18_t fg, bg, ffg, fbg, lfg;
+ILI9163C_color_18_t fg, bg, ffg, fbg, lfg, sky, gnd;
 
 color_t tftInfoFG = &fg;
 color_t tftInfoBG = &bg;
 color_t tftFixedPlaneBG = &fbg;
 color_t tftFixedPlaneFG = &ffg;
 color_t tftLadderFG = &lfg;
+color_t tftSky = &sky;
+color_t tftGround = &gnd;
 
 bool tftSplash = true; // To show the spash screen for a bit.
 
@@ -50,6 +52,8 @@ void tftInit() {
     fbg = tft.rgbTo18b(255, 255, 255);
     ffg = tft.rgbTo18b(255, 127, 0);
     lfg = tft.rgbTo18b(255, 255, 0);
+    sky = tft.rgbTo18b(100, 100, 255);
+    gnd = tft.rgbTo18b(200, 50, 50);
 
     tft.clearDisplay();
 }
@@ -94,10 +98,11 @@ void fillRect(int x1, int y1, int x2, int y2, color_t color) {
 void showPFD(float g, sensors_vec_t *orient, sensors_vec_t *mag, int alt) {
     tft.clearDisplay();
 
-    // Transformation matrix: rotation by orient->y and xlation by orient->z.
+    // Transformation matrix: rotation by orient->z and xlation by orient->y.
+    float roll = -orient->z, pitch = -orient->y; 
     float M[2][3];
     // getTransform(M, 20.0, 2.5); // TMP
-    getTransform(M, -orient->z, -orient->y);
+    getTransform(M, roll, pitch);
 
     // Paint sky and ground
     // ...
@@ -105,7 +110,7 @@ void showPFD(float g, sensors_vec_t *orient, sensors_vec_t *mag, int alt) {
     // Render the moving card.
     if (verbose)
 	streamPrintf(Serial, "Horizon\n");
-    drawHorizon(M);
+    drawHorizon(M, pitch);
     if (verbose)
 	streamPrintf(Serial, "Zero line\n");
     ladderLine(M, 0, 2);
@@ -174,10 +179,18 @@ void drawNose(int16_t height, int16_t thickness) {
 }
 
 // Horizon line
-void drawHorizon(float M[2][3]) {
+void drawHorizon(float M[2][3], float pitch) {
     point p1 = {-paneWidth/2, 0};
     point p2 = {paneWidth/2, 0};
     transformDrawLine(M, p1, p2);
+    // if pitch within limits then transform the endpoints and clipDraw()
+    // else fill with either sky or ground colour.
+    // ...
+}
+
+void paintSkyGround(int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
+    // Hmmm how do we know which side is sky?
+    // ...
 }
 
 // Draw two lines of the pitch ladder.

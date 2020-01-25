@@ -28,6 +28,7 @@
 #include "point.h"
 #include "config.h"
 #include "txt-align.h"
+#include "clip.h"
 
 const int refreshRate = 5;
 
