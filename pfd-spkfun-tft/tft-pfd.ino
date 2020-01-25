@@ -16,7 +16,6 @@ const int tftAltYPos = paneHeight - tftInfoHeight;
 
 const int PITCH_MIN = -30;
 const int PITCH_MAX = 30;
-const int FATLINE_W = 80;
 
 const char* cardinalLabels[] =
     { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
@@ -35,9 +34,11 @@ const int cardinalPitch = int(22.5 * pxPerDeg + 0.5);
 
 // The TFT panel.
 KWH018ST01_4WSPI tft;
-ILI9163C_color_18_t fg, bg, ffg, fbg, lfg, sky, gnd;
+ILI9163C_color_18_t wht, blk, fg, bg, ffg, fbg, lfg, sky, gnd;
 
+color_t white = &wht;
 color_t tftInfoFG = &fg;
+color_t black = &blk;
 color_t tftInfoBG = &bg;
 color_t tftFixedPlaneBG = &fbg;
 color_t tftFixedPlaneFG = &ffg;
@@ -48,18 +49,25 @@ color_t tftGround = &gnd;
 bool tftSplash = true; // To show the spash screen for a bit.
 
 point transform(float M[2][3], point p);
+void transformDrawLine(float M[2][3], point p1, point p2, int width=1, color_t fg=tftLadderFG);
+
+ILI9163C_color_18_t screenBuffer[paneWidth][paneHeight];
 
 void tftInit() {
     tft.begin(DC_PIN, CS_PIN, PWM_PIN, SPI, SPI_SPEED);
     fg = tft.rgbTo18b(255, 255, 255);
+    wht = tft.rgbTo18b(255, 255, 255);
     bg = tft.rgbTo18b(0, 0, 0);
+    blk = tft.rgbTo18b(0, 0, 0);
     fbg = tft.rgbTo18b(255, 255, 255);
     ffg = tft.rgbTo18b(255, 127, 0);
     lfg = tft.rgbTo18b(255, 255, 0);
     sky = tft.rgbTo18b(100, 100, 255);
     gnd = tft.rgbTo18b(200, 50, 50);
-
     tft.clearDisplay();
+
+    tft.setCurrentWindowMemory((color_t)screenBuffer, paneWidth*paneHeight);
+    tft.buffer();
 }
 
 // Graphics primitives
@@ -100,6 +108,8 @@ void fillRect(int x1, int y1, int x2, int y2, color_t color) {
 //
 
 void showPFD(float g, sensors_vec_t *orient, sensors_vec_t *mag, int alt) {
+    fillRect(0, 0, paneHeight, paneWidth, black);
+
     // Transformation matrix: rotation by orient->z and xlation by orient->y.
     float roll = -orient->z, pitch = -orient->y; 
     float M[2][3];
@@ -107,22 +117,21 @@ void showPFD(float g, sensors_vec_t *orient, sensors_vec_t *mag, int alt) {
     getTransform(M, roll, pitch);
 
     // Paint sky and ground
-    // ...
-
-    // Render the moving card.
     if (verbose)
 	streamPrintf(Serial, "Horizon\n");
     drawHorizon(M, pitch);
+
+    // Render the moving card.
     if (verbose)
 	streamPrintf(Serial, "Zero line\n");
-    ladderLine(M, 0, 2);
+    ladderLine(M, 0, 8);
     if (verbose)
 	streamPrintf(Serial, "\n");
-    ladderLine(M, 5, 4);
+    ladderLine(M, 5, 5);
     ladderLine(M, 10, 15);
-    ladderLine(M, 15, 4);
+    ladderLine(M, 15, 5);
     ladderLine(M, 20, 25);
-    ladderLine(M, 25, 4);
+    ladderLine(M, 25, 5);
     ladderLine(M, 30, 35);
 
     // Draw the fixed "airplane" at the center.
@@ -143,6 +152,7 @@ void showPFD(float g, sensors_vec_t *orient, sensors_vec_t *mag, int alt) {
     //drawAlt(L, alt);
 
     // All done.
+    tft.show();
     if (verbose)
 	streamPrintf(Serial, "Done.\n\n");
 }
@@ -185,32 +195,32 @@ void drawHorizon(float M[2][3], float pitch) {
     // if pitch within limits then transform the endpoints and clipDraw()
     // else fill with either sky or ground colour.
     if (pitch < PITCH_MIN) {
-	fillRect(0, 0, paneHeight, paneWidth, tftGround);
-    } else if (pitch > PITCH_MAX) {
 	fillRect(0, 0, paneHeight, paneWidth, tftSky);
+    } else if (pitch > PITCH_MAX) {
+	fillRect(0, 0, paneHeight, paneWidth, tftGround);
     } else {
 	// This doesn't quite work... round-off somewhere?
-	point p1 = {-paneWidth*2, FATLINE_W/2};
-	point p2 = {paneWidth*2, FATLINE_W/2};
-	p1 = transform(M, p1);
-	p2 = transform(M, p2);
-	drawLine(p1.x, p1.y, p2.x, p2.y, FATLINE_W, tftSky);
+	const int stripW = 4;
+	const int topStrip = -17 * stripW + stripW/2;
+	int w = paneWidth/2 + paneWidth/4;
+	point p1 = {-w, topStrip};
+	point p2 = {w, topStrip};
+	color_t c = tftGround;
+	for (int i = 0; i < 35; i++) {
+	    if (p1.y > 0)
+		c = tftSky;
+	    transformDrawLine(M, p1, p2, stripW, c);
+	    p1.y += stripW;
+	    p2.y = p1.y;
+	}
 
-	p1 = {-paneWidth*2, -FATLINE_W/2};
-	p2 = {paneWidth*2, -FATLINE_W/2};
-	p1 = transform(M, p1);
-	p2 = transform(M, p2);
-	drawLine(p1.x, p1.y, p2.x, p2.y, FATLINE_W, tftGround);
-
-	p1 = {-paneWidth*2, 0};
-	p2 = {paneWidth*2, 0};
-	transformDrawLine(M, p1, p2);
+	p1 = {-w, 0};
+	p2 = {w/2, 0};
+	transformDrawLine(M, p1, p2, 1, white);
     }
 }
 
 void paintSkyGround(int x1, int y1, int x2, int y2) {
-    // Hmmm how do we know which side is sky?
-    // ...
 }
 
 // Draw two lines of the pitch ladder.
@@ -222,7 +232,7 @@ void ladderLine(float M[2][3], int yDeg, int width) {
     pRight.y = -pRight.y;
     transformDrawLine(M, pLeft, pRight);
 
-    if (width < 5)
+    if (width <= 5)
 	return;
 
     // Draw ticks at the ends of the lines
@@ -239,10 +249,10 @@ void ladderLine(float M[2][3], int yDeg, int width) {
     transformDrawLine(M, pRight, p0);
 }
 
-void transformDrawLine(float M[2][3], point p1, point p2) {
+void transformDrawLine(float M[2][3], point p1, point p2, int width, color_t fg) {
     p1 = transform(M, p1);
     p2 = transform(M, p2);
-    drawLine(p1.x, p1.y, p2.x, p2.y, 1, tftLadderFG);
+    drawLine(p1.x, p1.y, p2.x, p2.y, width, fg);
 }
 
 // Transform a point from portrait to landscape. The origin is in the
