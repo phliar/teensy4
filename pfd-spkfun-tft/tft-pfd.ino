@@ -1,11 +1,13 @@
 //
 // TFT display stuff, including the PFD.
+const int PHYS_W = 128;
+const int PHYS_H = 160;
 
 // The PFD assumes it's rendering to a 2:1 rectangle. The  rectangle is
 // split into a 160x80 PFD and two 160x24 info strips. (Here represented as
 // landscape.)
-const int paneWidth = 160;
-const int paneHeight = 128;
+const int paneWidth = PHYS_H;
+const int paneHeight = PHYS_W;
 
 // All drawing is done in "normalized" coordinates, with the origin at the
 // center of the panel, and the board in landscape format with connectors to
@@ -78,6 +80,12 @@ void drawLine(int x1, int y1, int x2, int y2, int width, color_t color) {
     tft.line(x1, y1, x2, y2, width, color);
 }
 
+void horizLine(int x, int y, int w, color_t c, int dir) {
+    if (verbose)
+	streamPrintf(Serial, "  h (%d, %d) W: %d %s\n", x, y, w, dir?"<-":"->");
+    tft.xline(x, y, w, c, 1, 0, dir);
+}
+
 void drawString(int x, int y, int width, color_t fg, color_t bg, const char* txt) {
     if (bg != NULL)
  	tft.rectangle(x, y, x+width, y+charY, true, bg);
@@ -99,7 +107,7 @@ void drawRect(int x1, int y1, int x2, int y2, color_t color) {
 
 void fillRect(int x1, int y1, int x2, int y2, color_t color) {
     if (verbose)
-	streamPrintf(Serial, "R (%d %d), %dx%d\n", x1, y1, x2, y2);
+	streamPrintf(Serial, "R (%d %d), (%d %d)\n", x1, y1, x2, y2);
     tft.rectangle(x1, y1, x2, y2, true, color);
 }
 
@@ -107,19 +115,25 @@ void fillRect(int x1, int y1, int x2, int y2, color_t color) {
 // The PFD
 //
 
+inline float roll(sensors_vec_t *orient) {
+    return -orient->z;
+}
+
+inline float pitch(sensors_vec_t *orient) {
+    return orient->y;
+}
+
 void showPFD(float g, sensors_vec_t *orient, sensors_vec_t *mag, int alt) {
     fillRect(0, 0, paneHeight, paneWidth, black);
 
     // Transformation matrix: rotation by orient->z and xlation by orient->y.
-    float roll = -orient->z, pitch = -orient->y; 
     float M[2][3];
-    // getTransform(M, 20.0, 2.5); // TMP
-    getTransform(M, roll, pitch);
+    getTransform(M, roll(orient), pitch(orient));
 
     // Paint sky and ground
     if (verbose)
 	streamPrintf(Serial, "Horizon\n");
-    drawHorizon(M, pitch);
+    drawHorizon(M, orient);
 
     // Render the moving card.
     if (verbose)
@@ -191,36 +205,118 @@ void drawNose(int height, int thickness) {
 }
 
 // Horizon line
-void drawHorizon(float M[2][3], float pitch) {
+void drawHorizon(float M[2][3], sensors_vec_t* orient) {
     // if pitch within limits then transform the endpoints and clipDraw()
     // else fill with either sky or ground colour.
-    if (pitch < PITCH_MIN) {
-	fillRect(0, 0, paneHeight, paneWidth, tftSky);
-    } else if (pitch > PITCH_MAX) {
-	fillRect(0, 0, paneHeight, paneWidth, tftGround);
-    } else {
-	// This doesn't quite work... round-off somewhere?
-	const int stripW = 4;
-	const int topStrip = -17 * stripW + stripW/2;
-	int w = paneWidth/2 + paneWidth/4;
-	point p1 = {-w, topStrip};
-	point p2 = {w, topStrip};
-	color_t c = tftGround;
-	for (int i = 0; i < 35; i++) {
-	    if (p1.y > 0)
-		c = tftSky;
-	    transformDrawLine(M, p1, p2, stripW, c);
-	    p1.y += stripW;
-	    p2.y = p1.y;
+    float p = pitch(orient);
+    if (p > PITCH_MIN && p < PITCH_MAX) {
+	int w = paneWidth;
+	point p1 = {-w, 0};
+	point p2 = {w, 0};
+	p1 = transform(M, p1);
+	p2 = transform(M, p2);
+	clipline cline = clipLineToFrame(p1.x, p1.y, p2.x, p2.y, 0, PHYS_W, 0, PHYS_H);
+	if (cline.accept) {
+	    paintSkyGround(cline.x1, cline.y1, cline.x2, cline.y2, orient);
+	    return;
 	}
-
-	p1 = {-w, 0};
-	p2 = {w/2, 0};
-	transformDrawLine(M, p1, p2, 1, white);
     }
+    if (p < 0)
+	fillRect(0, 0, paneHeight, paneWidth, tftGround);
+    else
+	fillRect(0, 0, paneHeight, paneWidth, tftSky);
 }
 
-void paintSkyGround(int x1, int y1, int x2, int y2) {
+void paintSkyGround(int x1, int y1, int x2, int y2, sensors_vec_t* orient) {
+    if (verbose)
+	streamPrintf(Serial, "  ** HORIZON PAINT (%d, %d) :: (%d, %d)\n", x1, y1, x2, y2);
+    if (x2 < x1 || (x2 == x1 && y2 > y1)) {
+	// Swap, we want x1 on the left.
+	int tmp;
+	tmp = x1; x1 = x2; x2 = tmp;
+	tmp = y1; y1 = y2; y2 = tmp;
+    }
+
+    bool skyUp = pitch(orient) < 0;
+    bool turnL = roll(orient) < 0; // Craft is rolled left
+    color_t colors[2] = {tftSky, tftGround};
+    int8_t c1 = 0, c2 = 1; // When straight&level c1 == Sky and c2 == Ground
+
+    int minY = y1, maxY = y2, dy = y2-y1;
+    if (y1 > y2) {
+	minY = y2; maxY = y1;
+	dy = -dy;
+    }
+
+    // if !skyUp flip all the colours
+
+    if (x1 == 0 && x2 == PHYS_W) { // x1 is on the left so this test is sufficient.
+	if (turnL) {
+	    c1 = !c1; c2 = !c2;
+	}
+	fillRect(0, 0, PHYS_W, minY, colors[c2]);
+	fillRect(0, minY, PHYS_W, PHYS_H, colors[c1]);
+	if (turnL)
+	    triangle(0, minY, PHYS_W, dy, colors[c2]);
+	else
+	    triangle(PHYS_W, minY, -PHYS_W, dy, colors[c1]);
+
+    } else if (minY == 0 && maxY == PHYS_H) {
+	fillRect(0, 0,      x1, PHYS_H-1, colors[c1]);
+	fillRect(x1, 0, PHYS_W-1, PHYS_H-1, colors[c2]);
+	if (turnL)
+	    triangle(x1, 0, x2-x1, PHYS_H-1, colors[c1]);
+	else
+	    triangle(x1, PHYS_H, x2-x1, -PHYS_H+1, colors[c1]);
+
+    } else {
+	// One rect, partially overlaid by a triangle.
+	if (maxY == PHYS_H) {
+	    if (turnL) {
+		fillRect(0, 0, PHYS_W, PHYS_H, colors[c1]);
+		triangle(PHYS_W, PHYS_H, x1-PHYS_W, y2-PHYS_H, colors[c2]);
+	    } else {
+		fillRect(0, 0, PHYS_W, PHYS_H, colors[c2]);
+		triangle(0, PHYS_H, x2, y1-PHYS_H, colors[c1]);
+	    }
+	} else if (minY == 0) {
+	    if (turnL) {
+		fillRect(0, 0, PHYS_W, PHYS_H, colors[c2]);
+		triangle(0, 0, x2-x1, y1, colors[c1]);
+	    } else {
+		fillRect(0, 0, PHYS_W, PHYS_H, colors[c1]);
+		triangle(PHYS_W, 0, x1-PHYS_W, y2, colors[c2]);
+	    }
+	} else {
+	    if (verbose)
+		streamPrintf(Serial, "*** ERROR: horizon not drawn to borders of frame");
+	}
+    }
+    drawLine(x1, y1, x2, y2, 1, white);
+}
+
+// A filled right triangle with the rt. angle at (xpos, ypos).
+// w and h may be negative.
+void triangle(int xpos, int ypos, int w, int h, color_t color) {
+    if (verbose)
+	streamPrintf(Serial, "T (%d, %d) %d x %d\n", xpos, ypos, w, h);
+    int d = 1;
+    bool dir = false;
+    if (w < 0) {
+	w = -w;
+	dir = true;
+    }
+    if (h < 0) {
+	h = -h;
+	d = -1;
+    }
+    float fw = float(w);
+    float dx = fw/float(h);
+    for (int i = 0; i < h; i++) {
+	horizLine(xpos, ypos, (int)(0.5+fw), color, dir);
+	ypos += d;
+	fw -= dx;
+    }
 }
 
 // Draw two lines of the pitch ladder.
@@ -306,7 +402,7 @@ void getTransform(float M[2][3], float roll, float pitch) {
 
     M[0][0] = -sinRoll;
     M[0][1] = -cosRoll;
-    M[0][2] = paneHeight/2.0 - pxPerDeg * pitch;
+    M[0][2] = paneHeight/2.0 + pxPerDeg * pitch;
 
     M[1][0] = -cosRoll; 
     M[1][1] = sinRoll;

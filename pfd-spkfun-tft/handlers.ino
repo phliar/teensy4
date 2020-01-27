@@ -17,6 +17,12 @@ void bmpInit() {
 float pitchOffset = 0.0;
 float rollOffset = 0.0;
 
+// Correct drift with g vector:
+// cf. www.nxp.com/files/sensors/doc/app_note/AN_3461.pdf
+//   roll = atan2(gy, sgn(gz)*sqrt(gz*gz + mu*gx*gx)
+//   pitch = atan2(-gx, sqrt(gy*gy + gz*gz))
+
+
 void showSensorValues() {
     sensors_event_t baroEvt; bmp.getEvent(&baroEvt);
     float temp; bmp.getTemperature(&temp);

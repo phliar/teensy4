@@ -3,11 +3,11 @@
 #include "clip.h"
 //typedef int OutCode;
 
-const int INSIDE = 0; // 0000
-const int LEFT = 1;   // 0001
-const int RIGHT = 2;  // 0010
-const int BOTTOM = 4; // 0100
-const int TOP = 8;    // 1000
+const int8_t INSIDE = 0; // 0000
+const int8_t LEFT = 1;   // 0001
+const int8_t RIGHT = 2;  // 0010
+const int8_t BOTTOM = 4; // 0100
+const int8_t TOP = 8;    // 1000
 
 // Compute the bit code for a point (x, y) using the clip rectangle
 // bounded diagonally by (xmin, ymin), and (xmax, ymax)
@@ -15,9 +15,6 @@ const int TOP = 8;    // 1000
 // ASSUME THAT xmax, xmin, ymax and ymin are global constants.
 
 double xmin, xmax, ymin, ymax;
-void DrawRectangle(double, double, double, double);
-void LineSegment(double x0, double y0, double x1, double y1);
-extern void paintSkyGround(int16_t x1, int16_t y1, int16_t x2, int16_t y2);
 
 OutCode ComputeOutCode(double x, double y)
 {
@@ -40,8 +37,10 @@ OutCode ComputeOutCode(double x, double y)
 // Cohen–Sutherland clipping algorithm clips a line from
 // P0 = (x0, y0) to P1 = (x1, y1) against a rectangle with 
 // diagonal from (xmin, ymin) to (xmax, ymax).
-bool CohenSutherlandLineClipAndDraw(double x0, double y0, double x1, double y1)
+clipline CohenSutherlandLineClipAndDraw(double x0, double y0, double x1, double y1)
 {
+    streamPrintf(Serial, " CLIP(%.1f %.1f %.1f %.1f)\n    [%.1f %.1f] [%.1f %.1f] ",
+		 x0, y0, x1, y1, xmin, xmax, ymin, ymax);
     // compute outcodes for P0, P1, and whatever point lies outside the clip rectangle
     OutCode outcode0 = ComputeOutCode(x0, y0);
     OutCode outcode1 = ComputeOutCode(x1, y1);
@@ -98,33 +97,16 @@ bool CohenSutherlandLineClipAndDraw(double x0, double y0, double x1, double y1)
 	    }
 	}
     }
-    if (accept) {
-	// Following functions are left for implementation by user based on
-	// their platform (OpenGL/graphics.h etc.)
-	DrawRectangle(xmin, ymin, xmax, ymax);
-	LineSegment(x0, y0, x1, y1);
-    }
-    return accept;
+    streamPrintf(Serial, "     => (%.1f %.1f %.1f %.1f)\n", x0, y0, x1, y1);
+    return {accept, int(x0+0.5), int(y0+0.5), int(x1+0.5), int(y1+0.5)};
 }
 
-bool clipDraw(int x1, int y1, int x2, int y2,
-	      int x_min, int x_max, int y_min, int y_max) {
+clipline clipLineToFrame(int x1, int y1, int x2, int y2,
+			 int x_min, int x_max, int y_min, int y_max) {
     xmin = x_min;
     xmax = x_max;
     ymin = y_min;
     ymax = y_max;
+
     return CohenSutherlandLineClipAndDraw(x1, y1, x2, y2);
-}
-
-
-void LineSegment(double x0, double y0, double x1, double y1) {
-    int16_t ix0 = (int16_t)(0.5 + x0);
-    int16_t iy0 = (int16_t)(0.5 + y0);
-    int16_t ix1 = (int16_t)(0.5 + x1);
-    int16_t iy1 = (int16_t)(0.5 + y1);
-    paintSkyGround(ix0, iy0, ix1, iy1);
-}
-
-void DrawRectangle(double xmax, double ymax, double xmin, double ymin) {
-    // No-op
 }
