@@ -61,8 +61,8 @@ void tftInit() {
     wht = tft.rgbTo18b(255, 255, 255);
     bg = tft.rgbTo18b(0, 0, 0);
     blk = tft.rgbTo18b(0, 0, 0);
-    fbg = tft.rgbTo18b(255, 255, 255);
-    ffg = tft.rgbTo18b(255, 127, 0);
+    fbg = tft.rgbTo18b(255, 64, 255);
+    ffg = tft.rgbTo18b(255, 255, 255);
     lfg = tft.rgbTo18b(255, 255, 0);
     sky = tft.rgbTo18b(100, 100, 255);
     gnd = tft.rgbTo18b(200, 50, 50);
@@ -193,11 +193,12 @@ void drawNose(int height, int thickness) {
     point a = lscapeXform(p1);
     point p2l = {-height*2, -height};
     point p2r = {height*2, -height};
+    point bl, br;
     for (int i = 0; i < thickness; i++) {
-	point bl = lscapeXform(p2l);
-	point br = lscapeXform(p2r);
-	drawLine(a.x, a.y, bl.x, bl.y, 1, tftFixedPlaneBG);
-	drawLine(a.x, a.y, br.x, br.y, 1, tftFixedPlaneBG);
+        bl = lscapeXform(p2l);
+	br = lscapeXform(p2r);
+	drawLine(a.x, a.y, bl.x, bl.y, 1, tftFixedPlaneFG);
+	drawLine(a.x, a.y, br.x, br.y, 1, tftFixedPlaneFG);
 	p2l.x += 2; p2r.x -= 2;
     }
 }
