@@ -124,8 +124,6 @@ inline float pitch(sensors_vec_t *orient) {
 }
 
 void showPFD(float g, sensors_vec_t *orient, sensors_vec_t *mag, int alt) {
-    fillRect(0, 0, paneHeight, paneWidth, black);
-
     // Transformation matrix: rotation by orient->z and xlation by orient->y.
     float M[2][3];
     getTransform(M, roll(orient), pitch(orient));
@@ -237,8 +235,9 @@ void paintSkyGround(int x1, int y1, int x2, int y2, sensors_vec_t* orient) {
 	tmp = y1; y1 = y2; y2 = tmp;
     }
 
-    bool skyUp = pitch(orient) < 0;
-    bool turnL = roll(orient) < 0; // Craft is rolled left
+    float r = roll(orient);
+    bool skyUp = true;//(r > 0 && r < 90) || (r < 0 && r > -90);
+    bool turnL = r < 0; // Craft is rolled left
     color_t colors[2] = {tftSky, tftGround};
     int8_t c1 = 0, c2 = 1; // When straight&level c1 == Sky and c2 == Ground
 
@@ -248,7 +247,10 @@ void paintSkyGround(int x1, int y1, int x2, int y2, sensors_vec_t* orient) {
 	dy = -dy;
     }
 
-    // if !skyUp flip all the colours
+    // if !skyUp flip sky and ground colours
+    if (!skyUp) {
+	color_t tmp = colors[0]; colors[0] = colors[1]; colors[1] = tmp;
+    }
 
     if (x1 == 0 && x2 == PHYS_W) { // x1 is on the left so this test is sufficient.
 	if (turnL) {
@@ -259,7 +261,7 @@ void paintSkyGround(int x1, int y1, int x2, int y2, sensors_vec_t* orient) {
 	if (turnL)
 	    triangle(0, minY, PHYS_W, dy, colors[c2]);
 	else
-	    triangle(PHYS_W, minY, -PHYS_W, dy, colors[c1]);
+	    triangle(PHYS_W, minY, -PHYS_W, dy, colors[c2]);
 
     } else if (minY == 0 && maxY == PHYS_H) {
 	fillRect(0, 0,      x1, PHYS_H-1, colors[c1]);
