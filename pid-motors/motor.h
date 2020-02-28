@@ -25,6 +25,7 @@ struct motor_t {
     int idx;
 
     int prevEventTS;
+    int prevStepTS;
 
     // PID params
 

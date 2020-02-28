@@ -83,18 +83,22 @@ void motor_t::update() {
 }
 
 void motorLhandler() {
-    digitalWrite(pinMonitor, HIGH);
+    digitalWrite(pinMonEncHandlers, HIGH);
+
     motor_t* m = &motors[motorL];
     wheelEvent(m,
                digitalRead(m->encoderPins[0]) == digitalRead(m->encoderPins[1]));
-    digitalWrite(pinMonitor, LOW);
+
+    digitalWrite(pinMonEncHandlers, LOW);
 }
 
 void motorRhandler() {
-    digitalWrite(pinMonitor, HIGH);
+    digitalWrite(pinMonEncHandlers, HIGH);
+
     motor_t* m = &motors[motorR];
     wheelEvent(m,
                // The right motor runs in the opposite direction.
                digitalRead(m->encoderPins[0]) != digitalRead(m->encoderPins[1]));
-    digitalWrite(pinMonitor, LOW);
+
+    digitalWrite(pinMonEncHandlers, LOW);
 }

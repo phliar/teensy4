@@ -28,10 +28,10 @@ SCMD motorCtl;
 
 // Encoder
 const int countsPerRev = 99 * 48; // Pololu 25D 99:1 gear ratio, 48 CPR encoder
-const uint8_t pinEncLa = 20;
-const uint8_t pinEncLb = 21;
-const uint8_t pinEncRa = 22;
-const uint8_t pinEncRb = 23;
+const uint8_t pinEncLa = 4;       // White
+const uint8_t pinEncLb = 5;       // Yellow
+const uint8_t pinEncRa = 6;       // W
+const uint8_t pinEncRb = 7;       // Y
 const uint8_t encoderPins[2][2] =
     {
      {pinEncLa, pinEncLb},
@@ -39,8 +39,8 @@ const uint8_t encoderPins[2][2] =
     };
 
 const uint8_t displayCS = 10;
-const uint8_t displayRST = 6;
-const uint8_t displayDC = 5;
+const uint8_t displayRST = 9;
+const uint8_t displayDC = 8;
 Adafruit_SSD1325 oled(displayDC, displayRST, displayCS);
 const int FONT_W = 6;
 const int FONT_H = 8;
@@ -51,28 +51,31 @@ int OLED_ROWS;
 
 // While we're trying to figure out the coefficients
 bool shouldRun = false;
-const uint8_t pinStartStop = 17;
+const uint8_t pinStartStop = 20;
 const uint8_t pinSpeed = 14;
-const uint8_t pinKp = 16;
-const uint8_t pinKi = 15;
+const uint8_t pinKp = 15;
+const uint8_t pinKi = 16;
+const uint8_t pinKd = 17;
 const float fullScaleKp = 1.0;
 const float fullScaleKi = 0.1;
+const float fullScaleKd = 0.5;
+const float windupLimit = 100000.0; // Fix this
 
-
-const uint8_t pinMonitor = 0;
+// Debugging and tracing
+const uint8_t pinMonEncHandlers = 2;
+const uint8_t pinMonPID = 3;
+const uint8_t ledPin = LED_BUILTIN;
 bool verbose;
 
 const int refreshRate = 10; // per second
 
-const uint8_t START_DRIVE_LEVEL = 128;
+const uint8_t START_DRIVE_LEVEL = 64;
 const int DURATION_MS = 10000;
 const int INTERVAL_MS = 500;
 
-#define LEDPIN LED_BUILTIN
-
 void setup() {
     oledInit();
-    serialInit();
+    dbgInit();
     initMotors();
     initInterrupts();
     if (verbose)
@@ -80,25 +83,27 @@ void setup() {
     oled.clearDisplay();
 
     // Update displays
-    showData();
+    int now = micros();
+    showData(now);
     if (!shouldRun)
-        stopRun(&motors[0]);
+        stopRun(&motors[0], now);
 }
 
 void loop() {
     motor_t* m = &motors[0];
+    int now = micros();
     if (shouldRun) {
-        digitalWrite(LEDPIN, HIGH);
+        digitalWrite(ledPin, HIGH);
         m->targetSpeed = 800.0 * analogRead(pinSpeed) / 4095.0;
         if (!m->isRunning()) {
             oled.clearDisplay();
             startRun(m);
         }
     } else {
-        digitalWrite(LEDPIN, LOW);
+        digitalWrite(ledPin, LOW);
         m->targetSpeed = 0.0;
         if (m->isRunning())
-            stopRun(m);
+            stopRun(m, now);
     }
 }
 
@@ -106,40 +111,45 @@ void startRun(motor_t* m) {
     if (verbose)
         Serial.println("STARTING");
     Timer1.attachInterrupt(runPID);
-    m->driveLevel = START_DRIVE_LEVEL; // possibly negative if reverse
+    // m->driveLevel = START_DRIVE_LEVEL; // possibly negative if reverse
+    m->driveLevel = (uint8_t)(0.5 + 255.0 * analogRead(pinSpeed) / 4095.0);
     m->start();
 }
 
-void stopRun(motor_t* m) {
+void stopRun(motor_t* m, int now) {
     Timer1.detachInterrupt();
     m->stop();
     m->driveLevel = 0;
-    showData();
+    showData(now);
     if (verbose)
         Serial.println("STOPPED");
 }
 
-void showData() {
+void showData(int ts) {
     motor_t* m = &motors[0];
-    const int N = 7;
-    for (int i = 0; i < 1; m = &motors[++i]) {
-        oledRLine(i*N, "%d", m->count);
-        oledLine(i*N + 1, "%.1f/s:", m->targetSpeed);
-        oledRLine(i*N + 2, "%.1f/s", m->speed);
-        oledLine(i*N + 3, "P = %d", m->driveLevel);
-        oledLine(i*N + 4, "Kp = %.3f", m->kp);
-        oledLine(i*N + 5, "Ki = %.3f", m->ki);
-        oledLine(i*N + 6, "-- %s", m->isRunning()? "running" : "stopped");
+    const int N = 8;
+    for (int i = 0, l = 0; i < 1; m = &motors[++i], l+= N) {
+        int j = 0;
+        oledLine(l + j++, "%.1f/s: %.1f/s", m->targetSpeed, m->speed);
+        oledLine(l + j++, "P = %d", m->driveLevel);
+        oledLine(l + j++, "K %6.3f %6.3f %6.3f", m->kp, m->ki, m->kd);
+        oledLine(l + j++, "%d t=%d %s", m->count, ts - m->prevStepTS, m->isRunning()? "R" : "S");
     }
     oled.display();
+    if (verbose)
+        streamPrintf(Serial, "%d %.1f %.1f %d %.3f %.3f %.3f %d\n",
+                     m->count, m->speed, m->targetSpeed, m->driveLevel, m->kp, m->ki, m->kd,
+                     ts - m->prevStepTS);
 }
 
 /*
  * Initialization
  */
 
-void serialInit() {
-    pinMode(pinMonitor, OUTPUT); // For timing sections of code
+void dbgInit() {
+    pinMode(pinMonEncHandlers, OUTPUT); // Timing handlers externally
+    pinMode(pinMonPID, OUTPUT);         // - " -
+
     Serial.begin(115200);
     delay(1500);
     verbose = !!Serial;
@@ -151,7 +161,7 @@ void serialInit() {
 void oledInit() {
     oled.begin();
     oled.display();
-    oled.setRotation(3);
+    oled.setRotation(2);
     OLED_W = oled.width();
     OLED_H = oled.height();
     OLED_COLS = OLED_W / FONT_W;
@@ -207,9 +217,8 @@ void oledRLine(int line, const char* fmt, ...) {
     oled.fillRect(0, line * FONT_H, OLED_W, FONT_H, BLACK);
     oled.setCursor(0, line * FONT_H);
     streamPrintf(oled, "%10s", buf);
-    if (verbose) {
-        streamPrintf(Serial, "%10s\n", buf);
-    }
+    // if (verbose)        streamPrintf(Serial, "%10s\n", buf);
+
 }
 
 void oledLine(int line, const char* fmt, ...) {
@@ -224,9 +233,7 @@ void oledLine(int line, const char* fmt, ...) {
     oled.fillRect(0, line * FONT_H, OLED_W, FONT_H, BLACK);
     oled.setCursor(0, line * FONT_H);
     streamPrintf(oled, "%-10s", buf);
-    if (verbose) {
-        streamPrintf(Serial, "%-10s\n", buf);
-    }
+    // if (verbose)      streamPrintf(Serial, "%-10s\n", buf);
 }
 
 void panic(const char* msg) {
